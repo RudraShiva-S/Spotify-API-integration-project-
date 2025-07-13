@@ -28,7 +28,6 @@ public class SpotifyAuthService {
     private String refreshToken = "";
 
     public String buildLoginURL() {
-        String encodedRedirectUri = URLEncoder.encode(redirectUri, StandardCharsets.UTF_8);
         return "https://accounts.spotify.com/authorize?client_id=" + clientId +
                 "&response_type=code&redirect_uri=" + redirectUri +
                 "&scope=user-top-read user-read-currently-playing user-modify-playback-state user-read-playback-state";
