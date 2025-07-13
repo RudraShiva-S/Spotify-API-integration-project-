@@ -1,70 +1,101 @@
 package com.example.spotifyapi.Service;
 
-
-import com.example.spotifyapi.AuthService.SpotifyAuthService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @Service
-    @RequiredArgsConstructor
-    public class SpotifyService {
-        private final SpotifyAuthService authService;
-        private final RestTemplate restTemplate = new RestTemplate();
+@RequiredArgsConstructor
+public class SpotifyService {
 
-        public List<Map<String, String>> getTopTracks() {
-            String url = "https://api.spotify.com/v1/me/top/tracks?limit=10";
-            HttpHeaders headers = new HttpHeaders();
-            headers.setBearerAuth(authService.getAccessToken());
-            HttpEntity<?> request = new HttpEntity<>(headers);
+    private final SpotifyAuthService authService;
 
-            ResponseEntity<Map> response = restTemplate.exchange(url, HttpMethod.GET, request, Map.class);
-            List<Map<String, Object>> items = (List<Map<String, Object>>) response.getBody().get("items");
+    private List<Map<String, Object>> cachedTopTracks = null;
+    private long lastFetchedTimeTopTracks = 0;
 
-            return items.stream().map(item -> Map.of(
-                    "id", item.get("id").toString(),
-                    "name", item.get("name").toString(),
-                    "artist", ((List<Map<String, Object>>) item.get("artists")).get(0).get("name").toString()
-            )).toList();
+    private Map<String, Object> cachedNowPlaying = null;
+    private long lastFetchedTimeNowPlaying = 0;
+
+    private final long CACHE_TTL_MS = 60 * 1000; // 60 seconds
+
+    public List<Map<String, Object>> getTopTracks() {
+        if (cachedTopTracks != null && System.currentTimeMillis() - lastFetchedTimeTopTracks < CACHE_TTL_MS) {
+            return cachedTopTracks;
         }
 
-        public Map<String, String> getNowPlaying() {
-            String url = "https://api.spotify.com/v1/me/player/currently-playing";
-            HttpHeaders headers = new HttpHeaders();
-            headers.setBearerAuth(authService.getAccessToken());
-            HttpEntity<?> request = new HttpEntity<>(headers);
+        String accessToken = authService.getAccessToken();
+        RestTemplate rest = new RestTemplate();
 
-            try {
-                ResponseEntity<Map> response = restTemplate.exchange(url, HttpMethod.GET, request, Map.class);
-                Map<String, Object> item = (Map<String, Object>) response.getBody().get("item");
-                return Map.of(
-                        "name", item.get("name").toString(),
-                        "artist", ((List<Map<String, Object>>) item.get("artists")).get(0).get("name").toString()
-                );
-            } catch (Exception e) {
-                return Map.of("nowPlaying", "Nothing is playing");
-            }
-        }
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", "Bearer " + accessToken);
 
-        public void pause() {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setBearerAuth(authService.getAccessToken());
-            restTemplate.exchange("https://api.spotify.com/v1/me/player/pause", HttpMethod.PUT, new HttpEntity<>(headers), Void.class);
-        }
+        HttpEntity<Void> entity = new HttpEntity<>(headers);
 
-        public void playTrack(String id) {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setBearerAuth(authService.getAccessToken());
-            headers.setContentType(MediaType.APPLICATION_JSON);
+        ResponseEntity<Map> response = rest.exchange(
+                "https://api.spotify.com/v1/me/top/tracks",
+                HttpMethod.GET,
+                entity,
+                Map.class
+        );
 
-            Map<String, Object> body = Map.of("uris", List.of("spotify:track:" + id));
-            HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
-            restTemplate.exchange("https://api.spotify.com/v1/me/player/play", HttpMethod.PUT, request, Void.class);
-        }
+        Map body = response.getBody();
+        cachedTopTracks = (List<Map<String, Object>>) body.get("items");
+        lastFetchedTimeTopTracks = System.currentTimeMillis();
+
+        return cachedTopTracks;
     }
 
+    public Map<String, Object> getNowPlaying() {
+        if (cachedNowPlaying != null && System.currentTimeMillis() - lastFetchedTimeNowPlaying < CACHE_TTL_MS) {
+            return cachedNowPlaying;
+        }
 
+        String accessToken = authService.getAccessToken();
+        RestTemplate rest = new RestTemplate();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", "Bearer " + accessToken);
+
+        HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+        ResponseEntity<Map> response = rest.exchange(
+                "https://api.spotify.com/v1/me/player/currently-playing",
+                HttpMethod.GET,
+                entity,
+                Map.class
+        );
+
+        cachedNowPlaying = response.getBody();
+        lastFetchedTimeNowPlaying = System.currentTimeMillis();
+
+        return cachedNowPlaying;
+    }
+
+    public void pause() {
+        String accessToken = authService.getAccessToken();
+        RestTemplate rest = new RestTemplate();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", "Bearer " + accessToken);
+
+        HttpEntity<Void> entity = new HttpEntity<>(headers);
+        rest.exchange("https://api.spotify.com/v1/me/player/pause", HttpMethod.PUT, entity, Void.class);
+    }
+
+    public void playTrack(String trackId) {
+        String accessToken = authService.getAccessToken();
+        RestTemplate rest = new RestTemplate();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", "Bearer " + accessToken);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        Map<String, Object> body = Map.of("uris", List.of("spotify:track:" + trackId));
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
+
+        rest.exchange("https://api.spotify.com/v1/me/player/play", HttpMethod.PUT, entity, Void.class);
+    }
+}
